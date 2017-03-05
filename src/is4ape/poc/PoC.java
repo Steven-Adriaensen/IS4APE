@@ -18,26 +18,52 @@ import is4ape.pm.IndependentSampleAveragesModel;
 import is4ape.pm.ImportanceSamplingModelMemoized;
 import is4ape.pm.PerformanceModel;
 
+/**
+ * This class provides a fully generic implementation of our proof of concept.
+ * 
+ * @author Steven Adriaensen
+ *
+ * @param <InputType> The type of the input (e.g. problem instances to be solved, budget available for doing so)
+ * @param <PolicyType> The type of the design
+ * @param <ExecutionType> The type of the execution
+ */
 public class PoC<InputType,PolicyType,ExecutionType> {
+	final InputType input; //single input over which performance is to be maximised
+	final PolicyType init_pi; //initial candidate design
+	final Function<Random,PolicyType> globalPrior; //global prior used
+	final BiFunction<PolicyType,Random,PolicyType> localPrior; //local prior used
+	final BiFunction<InputType,PolicyType,ExecutionType> executor; //method for generating samples for (i.e. executing) a given design on a given input
 	
+	//the functions below define performance (i.e. the objective function to be maximised)
+	final Function<ExecutionType,Double> f; //The function describing the relationship between execution and performance space
+	final BiFunction<PolicyType,ExecutionType,Double> pr; //The function describing the relationship between design and execution space
 	
-	final InputType input;
-	final PolicyType init_pi;
-	final Function<Random,PolicyType> globalPrior;
-	final BiFunction<PolicyType,Random,PolicyType> localPrior;
-	final BiFunction<InputType,PolicyType,ExecutionType> executor;
-	final Function<ExecutionType,Double> f;
-	final BiFunction<PolicyType,ExecutionType,Double> pr;
+	final int max_evals; //maximum # evaluations to perform
+	final double Z; //z-score weighting uncertainty in our choice of incumbent
+	final int psize; //the (maximum) size of the pool
+	final double nprop; //the number of proposals to generate
 	
-	final int max_evals;
-	final double Z;
-	final int psize;
-	final double nprop;
+	PolicyType incumbent; //the current best design
+	PerformanceModel<PolicyType,ExecutionType> pModel; //the current performance estimates
+	List<PolicyType> pool; //the pool of candidate designs
 	
-	PolicyType incumbent;
-	PerformanceModel<PolicyType,ExecutionType> pModel;
-	List<PolicyType> pool;
-	
+	/**
+	 * Creates an instance of our PoC
+	 * 
+	 * @param input: single input over which performance is to be maximised
+	 * @param init_pi: initial candidate design as starting point for the search 
+	 * (if 'null' one will be sampled from global prior)
+	 * @param globalPrior: global prior used (i.e. global search operator)
+	 * @param localPrior: local prior used (i.e. local search operator)
+	 * @param executor: method for generating samples for (i.e. executing) a given design on a given input
+	 * @param f: the notion of the desirability of an execution to be used
+	 * @param pr: a function computing the likelihood of generating a given execution, using a given design
+	 * (if given: IS estimates will be used, otherwise: independent sample averages will be used)
+	 * @param Z: z-score weighting uncertainty in our choice of incumbent
+	 * @param psize: the (maximum) size of the pool
+	 * @param nprop: the number of proposals to generate
+	 * @param max_evals: # evaluations after which to return the incumbent
+	 */
 	public PoC(
 			InputType input,
 			PolicyType init_pi,
@@ -64,6 +90,8 @@ public class PoC<InputType,PolicyType,ExecutionType> {
 	}
 	
 	/**
+	 * Attempts to find the design maximising performance.
+	 * 
 	 * @param rng: The source of random numbers
 	 * @return the incumbent after max_evals
 	 */
@@ -71,8 +99,8 @@ public class PoC<InputType,PolicyType,ExecutionType> {
 		init(rng);
 		System.out.println("Initial incumbent: " + incumbent);
 		int eval = 0;
-		File csv = new File("./csv/PoC_Run"+ID+".csv");
-		log(csv,"Run, Perf. estimate, Incumbent, Time");
+		File csv = new File("./csv/PoC_Run"+ID+".csv"); //for logging
+		log(csv,"Run, Perf. estimate, Incumbent, Time"); //for logging
 		while(eval < max_evals){
 			//generate proposals
 			System.out.println("generating proposals...");
@@ -81,7 +109,8 @@ public class PoC<InputType,PolicyType,ExecutionType> {
 				PolicyType pi = propose_policy(rng);
 				proposals.add(pi);
 			}
-			//update incumbent
+			
+			//update incumbent (remark that a proposal might be our new incumbent even though we never executed it)
 			update_incumbent(proposals);
 			
 			//determine expected improvement for all
@@ -103,7 +132,7 @@ public class PoC<InputType,PolicyType,ExecutionType> {
 				pool.add(candidates.get(i).pi);
 			}
 			
-			//run the one with the greatest EI (possibly incumbent)
+			//run the one with the greatest EI (may be the incumbent itself)
 			PolicyType pi;
 			if(candidates.get(0).EI > EI(incumbent)){
 				pi = candidates.get(0).pi;
@@ -161,40 +190,50 @@ public class PoC<InputType,PolicyType,ExecutionType> {
 		}
 	}
 	
+	/*
+	 * Proposes a design for evaluation, drawn from an equal mixture of 
+	 * - the global prior
+	 * - the local prior (conditioned on the actual incumbent)
+	 */
 	private PolicyType propose_policy(Random rng){
 		PolicyType proposal;
-		if(incumbent == null || rng.nextBoolean()){
-			//use global
+		if(rng.nextBoolean()){
+			//use global (50% likelihood)
 			proposal = globalPrior.apply(rng);
-			//System.out.print("global: ");
 		}else{
-			//use local
+			//use local conditioned on incumbent (50% likelihood)
 			proposal = localPrior.apply(incumbent,rng);
-			//System.out.print("local: ");
 		}
-		//System.out.println(proposal);
 		return proposal;
 	}
 	
+	/*
+	 * updates the incumbent (i.e. lines 8 and 13)
+	 *  
+	 * @param pis: A list of potential new incumbents
+	 */
 	private void update_incumbent(List<PolicyType> pis){
-		double lbp_inc = pModel.mean(incumbent)-Z*pModel.uncertainty(incumbent);
-		double lbp_max = lbp_inc;
+		double lbz_inc = pModel.mean(incumbent)-Z*pModel.uncertainty(incumbent);
+		double lbz_max = lbz_inc;
 		int best_index = -1;
 		for(int i = 0; i < pis.size(); i++){
 			PolicyType pi = pis.get(i);
 			double lbp_pi = pModel.mean(pi)-Z*pModel.uncertainty(pi);
-			if(lbp_pi > lbp_max){
+			if(lbp_pi > lbz_max){
 				best_index = i;
-				lbp_max = lbp_pi;
+				lbz_max = lbp_pi;
 			}
 		}
 		
-		if(lbp_max > lbp_inc){
+		if(lbz_max > lbz_inc){
 			incumbent = pis.get(best_index);
 			System.out.println("NEW INCUMBENT: "+incumbent);
 		}
 	}
 	
+	/*
+	 * writes (appends) a line to a given file
+	 */
 	private void log(File f, String line){
 		PrintWriter csv_writer;
 		try {
@@ -206,6 +245,9 @@ public class PoC<InputType,PolicyType,ExecutionType> {
 		}
 	}
 	
+	/*
+	 * prints out some information about the candidates in C_{pool} (and c_inc)
+	 */
 	private void print_pool(){
 		for(int i = 0; i < pool.size(); i++){
 			PolicyType pi = pool.get(i);
@@ -219,8 +261,12 @@ public class PoC<InputType,PolicyType,ExecutionType> {
 		System.out.println();
 	}
 	
+	//used for computing Expected Improvement
 	final static private NormalDistribution gaussian = new NormalDistribution();
 	
+	/*
+	 * computes the expected improvement criterion for a given design
+	 */
 	private double EI(PolicyType pi){
 		double unc = pModel.uncertainty(pi);
 		if(unc == Double.POSITIVE_INFINITY){
@@ -242,6 +288,9 @@ public class PoC<InputType,PolicyType,ExecutionType> {
 		
 	}
 	
+	/*
+	 * 'Sortable' record storing a candidate alongside its expected improvement
+	 */
 	class RecordEI implements Comparable<RecordEI>{
 		final PolicyType pi;
 		double EI;

@@ -4,13 +4,26 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.function.Function;
 
+/**
+ * An implementation of the sample-based estimators.
+ * 
+ * @author Steven Adriaensen
+ *
+ * @param <PolicyType> The type of the design (it should properly (re-)define equals/hashcode methods!)
+ * @param <ExecutionType> The type of the execution
+ */
 public class IndependentSampleAveragesModel<PolicyType,ExecutionType> implements PerformanceModel<PolicyType,ExecutionType>{
-	final Function<ExecutionType,Double> f;
+	final Function<ExecutionType,Double> f; //The notion of 'desirability of an execution' used
 	
-	HashMap<PolicyType,List<Double>> results;
-	double fmin = Double.POSITIVE_INFINITY;
-	double fmax = Double.NEGATIVE_INFINITY;
+	HashMap<PolicyType,List<Double>> results; //stores performance observations f(e) for all e \in E'
+	double fmin = Double.POSITIVE_INFINITY; //desirability of the worst execution
+	double fmax = Double.NEGATIVE_INFINITY; //desirability of the best execution
 	
+	/**
+	 * Creates an instance of the IS estimator.
+	 * @param f: The notion of 'desirability of an execution' to be used
+	 * @param pr: The function to be used to compute the likelihood of generating an execution using a given design
+	 */
 	public IndependentSampleAveragesModel(Function<ExecutionType,Double> f){
 		this.f = f;
 		results = new HashMap<PolicyType,List<Double>>();
@@ -46,7 +59,10 @@ public class IndependentSampleAveragesModel<PolicyType,ExecutionType> implements
 		return avg;
 	}
 	
-	public double std(PolicyType pi){ //with pseudo counts
+	/*
+	 * Computes an estimate of the standard deviation of the performance of a given design
+	 */
+	protected double std(PolicyType pi){
 		double avg = mean(pi);
 		//add pseudo-count
 		double maxdiff = fmax-fmin;
@@ -64,7 +80,11 @@ public class IndependentSampleAveragesModel<PolicyType,ExecutionType> implements
 		return Math.sqrt(var);
 	}
 	
-	public double n(PolicyType pi){
+	/*
+	 * Returns the sample size of the estimate of a given design
+	 * i.e. the number of observations (executions) on which it is based.
+	 */
+	protected double n(PolicyType pi){
 		if(results.containsKey(pi)){
 			return results.get(pi).size();
 		}else{

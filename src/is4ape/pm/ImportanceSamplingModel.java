@@ -8,16 +8,30 @@ import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
+/**
+ * This class implements all importance sampling estimators.
+ * Its implementation is fully generic w.r.t. the type (i.e. representation) of designs and executions.
+ * 
+ * @author Steven Adriaensen
+ *
+ * @param <PolicyType> The type of the design
+ * @param <ExecutionType> The type of the execution
+ */
 public class ImportanceSamplingModel<PolicyType,ExecutionType> implements PerformanceModel<PolicyType,ExecutionType>{	
-	final BiFunction<PolicyType,ExecutionType,Double> pr;
-	final Function<ExecutionType,Double> f;
+	final BiFunction<PolicyType,ExecutionType,Double> pr; //The function describing the relationship between design and execution space
+	final Function<ExecutionType,Double> f; //The notion of 'desirability of an execution' used
 	
-	List<ExecutionType> execs;
-	List<Double> gs;
-	Map<PolicyType,Integer> pi_used;
-	double fmin;
-	double fmax;
+	List<ExecutionType> execs; //E': list of executions generated
+	List<Double> gs; //G(e) for all e in E' (to avoid re-computing these)
+	Map<PolicyType,Integer> pi_used; //C': the mixture of configurations used to generate E'
+	double fmin; //desirability of the worst execution
+	double fmax; //desirability of the best execution
 		
+	/**
+	 * Creates an instance of the IS estimator.
+	 * @param f: The notion of 'desirability of an execution' to be used
+	 * @param pr The function to be used to compute the likelihood of generating an execution using a given design
+	 */
 	public ImportanceSamplingModel(Function<ExecutionType,Double> f,BiFunction<PolicyType,ExecutionType,Double> pr){
 		this.f = f;
 		this.pr = pr;
@@ -69,6 +83,9 @@ public class ImportanceSamplingModel<PolicyType,ExecutionType> implements Perfor
 		return mean/norm;
 	}
 	
+	/*
+	 * Computes an estimate of the standard deviation of the performance of a given design
+	 */
 	protected double std(PolicyType pi){
 		double var = 0;
 		//estimate the variance of weight distribution;
@@ -87,7 +104,7 @@ public class ImportanceSamplingModel<PolicyType,ExecutionType> implements Perfor
 		}else{
 			//normalise
 			var = var/norm;
-			//add pseudo count:
+			//add pseudo count (avoids underestimating std early on)
 			double maxdiff = fmax-fmin;
 			var = var + (maxdiff*maxdiff)/n(pi);
 			return Math.sqrt(var);
@@ -105,10 +122,11 @@ public class ImportanceSamplingModel<PolicyType,ExecutionType> implements Perfor
 		}
 	}
 	
+	/*
+	 * Computes the 'effective' sample size of a given design
+	 */
 	protected double n(PolicyType pi) {
-		//compute effective sample size
 		double n = 0;
-		//compute IS estimate
 		double norm = 0; //sum of weights
 		double norm2 = 0; //sum of squared weights
 		//loop over all prior executions
@@ -151,7 +169,7 @@ public class ImportanceSamplingModel<PolicyType,ExecutionType> implements Perfor
 		}
 		//normalise
 		bc = bc/Math.sqrt(norm1*norm2);
-		//account for error, norms should be the same as wel
+		//account for error, norms should be the same as well
 		bc = bc/Math.max(norm1/norm2,norm2/norm1);
 		return bc;
 	}

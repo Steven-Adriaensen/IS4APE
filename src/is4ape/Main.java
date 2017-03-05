@@ -9,21 +9,21 @@ import is4ape.bench.Benchmark1;
 import is4ape.poc.PoC;
 
 public class Main {
-	enum Range{
-		DISCRETE,
-		CONTINUOUS
+	enum Range{ //parameter range setup
+		DISCRETE, //discrete setup
+		CONTINUOUS //continuous setup
 	}
 	
-	enum Estimation{
-		SAMPLE_AVERAGE,
-		IMPORTANCE_SAMPLING
+	enum Estimation{ //performance estimation mode
+		SAMPLE_AVERAGE, //using independent sample averages
+		IMPORTANCE_SAMPLING //using IS estimates
 	}
 	
-	static final Range range = Range.DISCRETE; //change to Continuous to evaluate continuous setting
-	static final Estimation estimation = Estimation.IMPORTANCE_SAMPLING; //change to SAMPLE_AVERAGE to use plain sample estimates in PoC (baseline)
+	static final Range range = Range.DISCRETE; //change to CONTINUOUS to evaluate PoC in the continuous setup
+	static final Estimation estimation = Estimation.IMPORTANCE_SAMPLING; //change to SAMPLE_AVERAGE to use plain sample estimates in PoC
 
 	public static void main(String[] args) {
-		//initialise random element
+		//initialise random element (if a fixed seed is used our PoC behaves deterministic)
 		long start_time = System.nanoTime();
 		Random rng = new Random(start_time);
 		

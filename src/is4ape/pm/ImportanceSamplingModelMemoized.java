@@ -5,8 +5,22 @@ import java.util.Map;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
+/**
+ * An extension of ImportanceSamplingModel which memoizes the result of all calls to
+ * - mean
+ * - uncertainty
+ * - n
+ * - std
+ * 
+ * Remark: An update clears the cache, as E' changes, and therefore the IS estimates.
+ * 
+ * @author Steven Adriaensen
+ *
+ * @param <PolicyType> The type of the design (it should properly (re-)define equals/hashcode methods!)
+ * @param <ExecutionType> The type of the execution
+ */
 public class ImportanceSamplingModelMemoized<PolicyType,ExecutionType> extends ImportanceSamplingModel<PolicyType,ExecutionType>{	
-	Map<PolicyType,Record> cache; 
+	Map<PolicyType,Record> cache;
 	
 	public ImportanceSamplingModelMemoized(Function<ExecutionType, Double> f, BiFunction<PolicyType, ExecutionType, Double> logPr) {
 		super(f, logPr);
