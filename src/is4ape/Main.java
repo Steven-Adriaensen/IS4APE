@@ -8,6 +8,21 @@ import java.util.function.Function;
 import is4ape.bench.Benchmark1;
 import is4ape.poc.PoC;
 
+/**
+ * This is the main class for testing our proof of concept.
+ * It illustrates an example setup, using benchmark 1.
+ * 
+ * The range field determines whether the discrete or continuous setup is used.
+ * (note that only the prior distributions differ)
+ * 
+ * The 'estimation' field determines whether independent sample or importance sample estimates are used.
+ * (in the former case, no likelihood function is passed to the PoC and expect poor performance unless |C| << max_evals)
+ * 
+ * Information about the incumbent after every evaluation is written to a csv file in the csv directory.
+ * 
+ * @author Steven Adriaensen
+ *
+ */
 public class Main {
 	enum Range{ //parameter range setup
 		DISCRETE, //discrete setup
@@ -23,8 +38,9 @@ public class Main {
 	static final Estimation estimation = Estimation.IMPORTANCE_SAMPLING; //change to SAMPLE_AVERAGE to use plain sample estimates in PoC
 
 	public static void main(String[] args) {
-		//initialise random element (if a fixed seed is used our PoC behaves deterministic)
-		long start_time = System.nanoTime();
+		long start_time = System.currentTimeMillis();
+		
+		//initialise random element (if a fixed seed <=> start_time is used our PoC behaves deterministic)
 		Random rng = new Random(start_time);
 		
 		//initial configuration

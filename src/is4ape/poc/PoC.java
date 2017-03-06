@@ -21,6 +21,8 @@ import is4ape.pm.PerformanceModel;
 /**
  * This class provides a fully generic implementation of our proof of concept.
  * 
+ * Information about the incumbent at every iteration is written to a csv file in the csv directory.
+ * 
  * @author Steven Adriaensen
  *
  * @param <InputType> The type of the input (e.g. problem instances to be solved, budget available for doing so)
@@ -160,10 +162,10 @@ public class PoC<InputType,PolicyType,ExecutionType> {
 			eval++;
 			
 			//output the current incumbent (last at previous evaluation level)
-			log(csv,eval+", "+ pModel.mean(incumbent)+ ", " +incumbent+", "+(System.nanoTime()-ID));
+			log(csv,eval+", "+ pModel.mean(incumbent)+ ", " +incumbent+", "+(System.currentTimeMillis()-ID));
 		}
 		System.out.println(incumbent);
-		System.out.println("took: "+(System.nanoTime()-ID));
+		System.out.println("took: "+(System.currentTimeMillis()-ID));
 		return incumbent;
 	}
 	
