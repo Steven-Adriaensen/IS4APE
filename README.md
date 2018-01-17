@@ -2,7 +2,6 @@
 
 This project contains the source code for the research article: <br />
 "*An Importance Sampling Approach to the Estimation of Algorithm Performance in Automated Algorithm Design*" 
-
 (Adriaensen et al, 2017)
 
 Feel free to use IS4APE in your own research.
