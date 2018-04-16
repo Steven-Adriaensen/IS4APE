@@ -1,236 +1,206 @@
 package is4ape.poc;
 
-
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
-import org.apache.commons.math3.distribution.NormalDistribution;
-
+import is4ape.pm.ImportanceSamplingModel;
 import is4ape.pm.IndependentSampleAveragesModel;
-import is4ape.pm.ImportanceSamplingModelMemoized;
 import is4ape.pm.PerformanceModel;
+import is4ape.pm.memoize.MemoizePM;
 
 /**
  * This class provides a fully generic implementation of our proof of concept.
  * 
- * Information about the incumbent at every iteration is written to a csv file in the csv directory.
+ * Information about the incumbent at every iteration is written to the output file in csv format
  * 
  * @author Steven Adriaensen
  *
  * @param <InputType> The type of the input (e.g. problem instances to be solved, budget available for doing so)
- * @param <PolicyType> The type of the design
+ * @param <DesignType> The type of the design
  * @param <ExecutionType> The type of the execution
  */
-public class PoC<InputType,PolicyType,ExecutionType> {
-	final InputType input; //single input over which performance is to be maximised
-	final PolicyType init_pi; //initial candidate design
-	final Function<Random,PolicyType> globalPrior; //global prior used
-	final BiFunction<PolicyType,Random,PolicyType> localPrior; //local prior used
-	final BiFunction<InputType,PolicyType,ExecutionType> executor; //method for generating samples for (i.e. executing) a given design on a given input
+public class PoC<InputType,DesignType,ExecutionType> {
+	//wb-ACP instance being solved <a,Theta,D,pr,p>
+	final BiFunction<InputType,DesignType,ExecutionType> a; 	//target algorithm
+	final Function<Random,DesignType> globalPrior; 				//Theta (indirectly)
+	final BiFunction<DesignType,Random,DesignType> localPrior; 	//Theta (indirectly)
+	final Function<Random,InputType> D; 						//input distribution
+	final BiFunction<DesignType,ExecutionType,Double> pr; 		//pr'
+	final Function<ExecutionType,Double> p; 					//p
+	//parameters
+	final double K;
+	final int L;
+	//budget
+	final int N;
+	//initial configuration (if any)
+	final DesignType theta_init;
 	
-	//the functions below define performance (i.e. the objective function to be maximised)
-	final Function<ExecutionType,Double> f; //The function describing the relationship between execution and performance space
-	final BiFunction<PolicyType,ExecutionType,Double> pr; //The function describing the relationship between design and execution space
+	//variables for logging purposes
+	long start_time;
+	File trajFile;
 	
-	final int max_evals; //maximum # evaluations to perform
-	final double Z; //z-score weighting uncertainty in our choice of incumbent
-	final int psize; //the (maximum) size of the pool
-	final double nprop; //the number of proposals to generate
+	PerformanceModel<DesignType,ExecutionType> M; //the current performance 'model'
+	DesignType theta_inc; //the current best design
+	//counters
+	int num_eval;
+	int num_it; 
+	int num_prop;
 	
-	PolicyType incumbent; //the current best design
-	PerformanceModel<PolicyType,ExecutionType> pModel; //the current performance estimates
-	List<PolicyType> pool; //the pool of candidate designs
 	
 	/**
 	 * Creates an instance of our PoC
-	 * 
-	 * @param input: single input over which performance is to be maximised
-	 * @param init_pi: initial candidate design as starting point for the search 
-	 * (if 'null' one will be sampled from global prior)
-	 * @param globalPrior: global prior used (i.e. global search operator)
-	 * @param localPrior: local prior used (i.e. local search operator)
-	 * @param executor: method for generating samples for (i.e. executing) a given design on a given input
-	 * @param f: the notion of the desirability of an execution to be used
-	 * @param pr: a function computing the likelihood of generating a given execution, using a given design
-	 * (if given: IS estimates will be used, otherwise: independent sample averages will be used)
-	 * @param Z: z-score weighting uncertainty in our choice of incumbent
-	 * @param psize: the (maximum) size of the pool
-	 * @param nprop: the number of proposals to generate
-	 * @param max_evals: # evaluations after which to return the incumbent
 	 */
 	public PoC(
-			InputType input,
-			PolicyType init_pi,
-			Function<Random,PolicyType> globalPrior,
-			BiFunction<PolicyType,Random,PolicyType> localPrior,
-			BiFunction<InputType,PolicyType,ExecutionType> executor,
-			Function<ExecutionType,Double> f,
-			BiFunction<PolicyType,ExecutionType,Double> pr,
-			double Z,
-			int psize,
-			double nprop,
-			int max_evals){
-		this.input = input;
-		this.init_pi = init_pi;
-		this.executor = executor;
-		this.f = f;
-		this.pr = pr;
-		this.max_evals = max_evals;
+			BiFunction<InputType,DesignType,ExecutionType> a,
+			Function<Random,DesignType> globalPrior,
+			BiFunction<DesignType,Random,DesignType> localPrior,
+			Function<Random,InputType> D,
+			BiFunction<DesignType,ExecutionType,Double> pr,
+			Function<ExecutionType,Double> p,
+			double K,
+			int L,
+			int N,
+			DesignType theta_init
+			){
+		this.a = a;
 		this.globalPrior = globalPrior;
 		this.localPrior = localPrior;
-		this.Z = Z;
-		this.psize = psize;
-		this.nprop = nprop;
+		this.D = D;
+		this.pr = pr;
+		this.p = p;
+		this.K = K;
+		this.L = L;
+		this.N = N;
+		this.theta_init = theta_init;
 	}
 	
-	/**
-	 * Attempts to find the design maximising performance.
-	 * 
-	 * @param rng: The source of random numbers
-	 * @return the incumbent after max_evals
-	 */
-	public PolicyType maximize(Random rng, long ID){
-		init(rng);
-		System.out.println("Initial incumbent: " + incumbent);
-		int eval = 0;
-		File csv = new File("./csv/PoC_Run"+ID+".csv"); //for logging
-		log(csv,"Run, Perf. estimate, Incumbent, Time"); //for logging
-		while(eval < max_evals){
-			//generate proposals
-			System.out.println("generating proposals...");
-			List<PolicyType> proposals = new ArrayList<PolicyType>((int)nprop);
-			for(int i = 0; i < nprop; i++){
-				PolicyType pi = propose_policy(rng);
-				proposals.add(pi);
-			}
-			
-			//update incumbent (remark that a proposal might be our new incumbent even though we never executed it)
-			update_incumbent(proposals);
-			
-			//determine expected improvement for all
-			List<RecordEI> candidates = new ArrayList<RecordEI>();
-			//proposals
-			for(PolicyType pi : proposals){
-				candidates.add(new RecordEI(pi));
-			}
-			//pool
-			for(PolicyType pi : pool){
-				candidates.add(new RecordEI(pi));
-			}
-			
-			Collections.sort(candidates);
-			
-			//determine new pool
-			pool.clear();
-			for(int i = 0; i < Math.min(candidates.size(), psize); i++){
-				pool.add(candidates.get(i).pi);
-			}
-			
-			//run the one with the greatest EI (may be the incumbent itself)
-			PolicyType pi;
-			if(candidates.get(0).EI > EI(incumbent)){
-				pi = candidates.get(0).pi;
-			}else{
-				pi = incumbent;
-			}
-			
-			System.out.println("EVALUATION "+(eval+1));
-			
-			System.out.println("run "+ pi +" on "+ input);
-			ExecutionType exec = executor.apply(input, pi);
-			double f_exec = f.apply(exec);
-			System.out.println("exec: "+ exec);
-			System.out.println("cost was "+ f_exec);
-			System.out.println();
-			
-			//update performance model
-			pModel.update(pi, exec);
-			
-			//determine whether the incumbent has changed
-			update_incumbent(pool);
-			
-			print_pool();
-			
-			eval++;
-			
-			//output the current incumbent (last at previous evaluation level)
-			log(csv,eval+", "+ pModel.mean(incumbent)+ ", " +incumbent+", "+(System.currentTimeMillis()-ID));
+	public DesignType minimize(Random rng, File output_file){
+		/* initialization */
+		init(rng,output_file);
+		
+		//a single proposal in the first iteration
+		int m = 1;
+		
+		while(num_eval < N){
+			//generate proposals & update the incumbent
+			List<DesignType> Theta_prop = explore(m,rng);
+			//select contender
+			DesignType theta_prop = select(Theta_prop,rng);
+			//race
+			race(theta_prop,rng);
+			//update counters and compute m for next iteration
+			num_it++;
+			m = (int) Math.min((double)num_eval/num_it*(L-(double)num_prop/N)/(1-(double)num_eval/N), 
+					(num_eval+Math.min(2,N-num_eval))*L - num_prop);
 		}
-		System.out.println(incumbent);
-		System.out.println("took: "+(System.currentTimeMillis()-ID));
-		return incumbent;
+		explore(L*N-num_prop,rng); //final attempt to find new incumbents
+		logCurrentIncumbent();
+		return theta_inc;
 	}
 	
-	private void init(Random rng){
-		//initialize the performance model		
+	private void init(Random rng, File output_file){
+		//some initialization for logging purposes
+		start_time = System.currentTimeMillis();
+		trajFile = output_file;
+		log(trajFile,"Run, Perf. estimate, Incumbent, Time");
+		
+		//initialize the incumbent
+		theta_inc = theta_init != null? theta_init : globalPrior.apply(rng);
+		
+		//initialize performance model
 		if(pr == null){
 			//independent sample averages
-			pModel = new IndependentSampleAveragesModel<PolicyType,ExecutionType>(f);
+			M = new IndependentSampleAveragesModel<DesignType,ExecutionType>(p);
 		}else{
 			//importance sample estimates
-			pModel = new ImportanceSamplingModelMemoized<PolicyType,ExecutionType>(f,pr);
+			M = new ImportanceSamplingModel<DesignType,ExecutionType>(p,pr);
 		}
+		M = new MemoizePM<DesignType,ExecutionType>(M);
 		
-		//initialize the pool
-		pool = new ArrayList<PolicyType>(psize);
-		
-		//initialize incumbent
-		if(init_pi != null){
-			//use the one passed, if any
-			incumbent = init_pi;
-		}else{
-			//sample the initial incumbent from the global prior
-			incumbent = globalPrior.apply(rng);
-		}
+		//initialize counters
+		num_eval = 0;
+		num_it = 0;
+		num_prop = 0;
 	}
 	
-	/*
-	 * Proposes a design for evaluation, drawn from an equal mixture of 
-	 * - the global prior
-	 * - the local prior (conditioned on the actual incumbent)
-	 */
-	private PolicyType propose_policy(Random rng){
-		PolicyType proposal;
-		if(rng.nextBoolean()){
-			//use global (50% likelihood)
-			proposal = globalPrior.apply(rng);
-		}else{
-			//use local conditioned on incumbent (50% likelihood)
-			proposal = localPrior.apply(incumbent,rng);
+	private List<DesignType> explore(int m, Random rng){
+		//generate m proposals
+		List<DesignType> Theta_prop = new ArrayList<DesignType>(m);
+		for(int i = 0; i < m; i++){
+			num_prop++;
+			DesignType theta_i;
+			if(rng.nextBoolean()){
+				//use global (50% likelihood)
+				theta_i = globalPrior.apply(rng);
+			}else{
+				//use local conditioned on incumbent (50% likelihood)
+				theta_i = localPrior.apply(theta_inc,rng);
+			}
+			Theta_prop.add(theta_i);
+			updateIncumbent(theta_i);
 		}
-		return proposal;
+		return Theta_prop;
 	}
 	
-	/*
-	 * updates the incumbent (i.e. lines 8 and 13)
-	 *  
-	 * @param pis: A list of potential new incumbents
-	 */
-	private void update_incumbent(List<PolicyType> pis){
-		double lbz_inc = pModel.mean(incumbent)-Z*pModel.uncertainty(incumbent);
-		double lbz_max = lbz_inc;
-		int best_index = -1;
-		for(int i = 0; i < pis.size(); i++){
-			PolicyType pi = pis.get(i);
-			double lbp_pi = pModel.mean(pi)-Z*pModel.uncertainty(pi);
-			if(lbp_pi > lbz_max){
-				best_index = i;
-				lbz_max = lbp_pi;
+	private DesignType select(List<DesignType> Theta_prop, Random rng){
+		double max_val = Double.NEGATIVE_INFINITY;
+		DesignType max_arg = null;
+		//System.out.println("<o: "+M.o(theta_inc)+",unc: "+M.unc(theta_inc)+">");
+		for(DesignType theta : Theta_prop){
+			double term1 = M.o(theta_inc) == M.o(theta)? 0 : (M.o(theta_inc) - M.o(theta))/(M.unc(theta_inc) + M.unc(theta));
+			double val = term1 - Math.pow(M.sim(theta, theta_inc),K)/(1-Math.pow(M.sim(theta, theta_inc),K));
+			//System.out.println("<o: "+M.o(theta)+",unc: "+M.unc(theta)+",sim: "+M.sim(theta,theta_inc)+"> "+val);
+			if(val > max_val){
+				max_val = val;
+				max_arg = theta;
 			}
 		}
-		
-		if(lbz_max > lbz_inc){
-			incumbent = pis.get(best_index);
-			System.out.println("NEW INCUMBENT: "+incumbent);
+		return max_arg == null? Theta_prop.get(0) : max_arg;
+	}
+	
+	private void race(DesignType theta_prop, Random rng){
+		//run incumbent
+		test(theta_inc,rng); 
+		//run contender until either incumbent or worse estimate
+		do{
+			test(theta_prop,rng);
+			updateIncumbent(theta_prop);
+		}while(num_eval < N && theta_inc != theta_prop && M.o(theta_prop) < M.o(theta_inc));
+	}
+	
+	private void test(DesignType theta, Random rng){
+		if(num_eval < N){
+			//log incumbent
+			logCurrentIncumbent();
+			//run theta on x ~ D
+			InputType x = D.apply(rng);
+			ExecutionType exec = a.apply(x, theta);
+			//update \hat{M}
+			M.update(theta, exec);
+			num_eval++;
 		}
+	}
+
+	private void updateIncumbent(DesignType theta){
+		if(theta != theta_inc && M.o(theta_inc) >= M.o(theta)){
+			double sK = Math.pow(M.sim(theta_inc, theta),K);
+			if(sK*(M.o(theta_inc)-M.o(theta)) >= (1-sK)*(M.unc(theta)-M.unc(theta_inc))){
+				//System.out.println("<o: "+M.o(theta_inc)+",unc: "+M.unc(theta_inc)+">");
+				//System.out.println("<o: "+M.o(theta)+",unc: "+M.unc(theta)+",sim: "+M.sim(theta,theta_inc)+">");
+				theta_inc = theta;
+			}
+		}
+	}
+	
+	private void logCurrentIncumbent(){
+		log(trajFile,num_eval+", "+ M.o(theta_inc)+ ", " +theta_inc+", "+(System.currentTimeMillis()-start_time));
 	}
 	
 	/*
@@ -246,73 +216,5 @@ public class PoC<InputType,PolicyType,ExecutionType> {
 			e.printStackTrace();
 		}
 	}
-	
-	/*
-	 * prints out some information about the candidates in C_{pool} (and c_inc)
-	 */
-	private void print_pool(){
-		for(int i = 0; i < pool.size(); i++){
-			PolicyType pi = pool.get(i);
-			double pi_mean = pModel.mean(pi);
-			double pi_punc = Z*pModel.uncertainty(pi);
-			System.out.println(i+") "+pi+" "+pi_mean+" ["+(pi_mean-pi_punc)+","+(pi_mean+pi_punc)+"] EI: "+EI(pi));
-		}
-		double inc_mean = pModel.mean(incumbent);
-		double inc_punc = Z*pModel.uncertainty(incumbent);
-		System.out.println("incumbent: "+incumbent +" "+inc_mean+" ["+(inc_mean-inc_punc)+","+(inc_mean+inc_punc)+"] EI: "+EI(incumbent));
-		System.out.println();
-	}
-	
-	//used for computing Expected Improvement
-	final static private NormalDistribution gaussian = new NormalDistribution();
-	
-	/*
-	 * computes the expected improvement criterion for a given design
-	 */
-	private double EI(PolicyType pi){
-		double unc = pModel.uncertainty(pi);
-		if(unc == Double.POSITIVE_INFINITY){
-			return Double.POSITIVE_INFINITY;
-		}else{
-			double est = pModel.mean(pi);
-			double est_inc = pModel.mean(incumbent);
-			double better = est-est_inc;
-			if(unc == 0){
-				return Math.max(0, better);
-			}else{
-				double EI = better*gaussian.cumulativeProbability(better/unc)+unc*gaussian.density(better/unc);
-				if(Double.isNaN(EI)){
-					System.out.println();
-				}
-				return EI;
-			}
-		}
-		
-	}
-	
-	/*
-	 * 'Sortable' record storing a candidate alongside its expected improvement
-	 */
-	class RecordEI implements Comparable<RecordEI>{
-		final PolicyType pi;
-		double EI;
-		
-		RecordEI(PolicyType pi){
-			this.pi = pi;
-			EI = EI(pi);
-		}
 
-		@Override
-		public int compareTo(RecordEI other) {
-			if(this.EI < other.EI){
-				return 1;
-			}else if(this.EI > other.EI){
-				return -1;
-			}else{
-				return 0;
-			}
-		}
-		
-		
-	}
 }

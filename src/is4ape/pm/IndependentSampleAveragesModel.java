@@ -9,15 +9,16 @@ import java.util.function.Function;
  * 
  * @author Steven Adriaensen
  *
- * @param <PolicyType> The type of the design (it should properly (re-)define equals/hashcode methods!)
+ * @param <DesignType> The type of the design (it should properly (re-)define equals/hashcode methods!)
  * @param <ExecutionType> The type of the execution
  */
-public class IndependentSampleAveragesModel<PolicyType,ExecutionType> implements PerformanceModel<PolicyType,ExecutionType>{
+public class IndependentSampleAveragesModel<DesignType,ExecutionType> implements PerformanceModel<DesignType,ExecutionType>{
 	final Function<ExecutionType,Double> f; //The notion of 'desirability of an execution' used
 	
-	HashMap<PolicyType,List<Double>> results; //stores performance observations f(e) for all e \in E'
-	double fmin = Double.POSITIVE_INFINITY; //desirability of the worst execution
-	double fmax = Double.NEGATIVE_INFINITY; //desirability of the best execution
+	HashMap<DesignType,List<Double>> results; //stores performance observations f(e) for all e \in E'
+	int n_exec;
+	double sum_f;
+	double sum_f2;
 	
 	/**
 	 * Creates an instance of the IS estimator.
@@ -26,11 +27,15 @@ public class IndependentSampleAveragesModel<PolicyType,ExecutionType> implements
 	 */
 	public IndependentSampleAveragesModel(Function<ExecutionType,Double> f){
 		this.f = f;
-		results = new HashMap<PolicyType,List<Double>>();
+		results = new HashMap<DesignType,List<Double>>();
+	}
+	
+	private double STD(){
+		return Math.sqrt(sum_f2/n_exec - (sum_f*sum_f)/(n_exec*n_exec));
 	}
 
 	@Override
-	public void update(PolicyType pi, ExecutionType exec) {
+	public void update(DesignType pi, ExecutionType exec) {
 		List<Double> results_pi;
 		//if first result for policy
 		if(results.containsKey(pi)){
@@ -41,12 +46,14 @@ public class IndependentSampleAveragesModel<PolicyType,ExecutionType> implements
 		}
 		double f_exec = f.apply(exec);
 		results_pi.add(f_exec);
-		fmax = Math.max(f_exec, fmax);
-		fmin = Math.min(f_exec, fmin);
+		//compute standard deviation
+		n_exec++;
+		sum_f += f_exec;
+		sum_f2 += f_exec*f_exec;
 	}
 	
 	@Override
-	public double mean(PolicyType pi) {
+	public double o(DesignType pi) {
 		double avg = 0;
 		if(results.containsKey(pi)){
 			List<Double> res = results.get(pi);
@@ -60,31 +67,10 @@ public class IndependentSampleAveragesModel<PolicyType,ExecutionType> implements
 	}
 	
 	/*
-	 * Computes an estimate of the standard deviation of the performance of a given design
-	 */
-	protected double std(PolicyType pi){
-		double avg = mean(pi);
-		//add pseudo-count
-		double maxdiff = fmax-fmin;
-		double var = maxdiff*maxdiff;
-		//compute variation
-		if(results.containsKey(pi)){
-			List<Double> res = results.get(pi);
-			int i = 2;
-			for(Double f : res){
-				double diff = f-avg;
-				var += (diff*diff-var)/i;
-				i++;
-			}
-		}
-		return Math.sqrt(var);
-	}
-	
-	/*
 	 * Returns the sample size of the estimate of a given design
 	 * i.e. the number of observations (executions) on which it is based.
 	 */
-	protected double n(PolicyType pi){
+	public double n(DesignType pi){
 		if(results.containsKey(pi)){
 			return results.get(pi).size();
 		}else{
@@ -92,16 +78,16 @@ public class IndependentSampleAveragesModel<PolicyType,ExecutionType> implements
 		}
 	}
 	
-	public double uncertainty(PolicyType pi){
+	public double unc(DesignType pi){
 		if(results.containsKey(pi)){
-			return std(pi)/Math.sqrt(n(pi));
+			return STD()/Math.sqrt(n(pi));
 		}else{
 			return Double.POSITIVE_INFINITY;
 		}
 	}
 
 	@Override
-	public double similarity(PolicyType pi1, PolicyType pi2) {
+	public double sim(DesignType pi1, DesignType pi2) {
 		return pi1.equals(pi2)? 1.0 : 0.0;
 	}
 

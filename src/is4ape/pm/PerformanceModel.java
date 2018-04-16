@@ -6,32 +6,33 @@ package is4ape.pm;
  * 
  * @author Steven Adriaensen
  *
- * @param <PolicyType> The type of the design
+ * @param <DesignType> The type of the design
  * @param <ExecutionType> The type of the execution
  */
-public interface PerformanceModel<PolicyType,ExecutionType> {
+public interface PerformanceModel<DesignType,ExecutionType> {
 	/**
 	 * Updates the model after a new execution.
 	 * 
 	 * @param pi: Design used to obtain the new execution.
 	 * @param exec: The new execution.
 	 */
-	void update(PolicyType pi, ExecutionType exec);
+	void update(DesignType theta, ExecutionType exec);
 	
 	/*
-	 * Provides an estimate of the mean performance of a given design
+	 * Provides an estimate of the average-case performance of a given design
 	 */
-	double mean(PolicyType pi);
+	double o(DesignType theta);
 	
 	/*
 	 * Provides an estimate of the uncertainty (expected error) on mean performance estimate of a given design.
 	 */
-	double uncertainty(PolicyType pi);
+	double unc(DesignType theta);
 	
+	double n(DesignType theta);
 	/*
 	 * Provides an estimate of the similarity of 2 given designs.
 	 * 1: Identical
 	 * 0: Completely different
 	 */
-	double similarity(PolicyType pi1, PolicyType pi2);
+	double sim(DesignType theta1, DesignType theta2);
 }

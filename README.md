@@ -18,7 +18,6 @@ Adriaensen, Steven, Filip Moons, and Ann Nowé. "*An Importance Sampling Approac
   organization={Springer} <br /> 
 }
 
-
 **Content**:
 
 See the documentation in these files for more details.
@@ -27,3 +26,11 @@ See the documentation in these files for more details.
 
 [https://link.springer.com/chapter/10.1007/978-3-319-69404-7_1](https://link.springer.com/chapter/10.1007/978-3-319-69404-7_1)
 
+**UPDATE**:
+What's new:
+- implementations of two additional experimental scenarios:
+  - the design of a (static) sorting portfolio (to use, please extract sort_data.zip into the sort_data directory)
+  - the design of a dynamic metaheuristic scheduler (to use, please extract hh_data.zip into the hh_data directory)
+- improvements to the PoC and IS estimates.
+
+(the original code used in (Adriaensen et al, 2017) can still be found in directory "lion2017")
