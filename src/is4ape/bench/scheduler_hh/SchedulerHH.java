@@ -8,6 +8,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+/**
+ * This class contains all logic for the dynamic metaheuristic scheduler scenario
+ * 
+ * @author Steven Adriaensen
+ *
+ */
 public class SchedulerHH {
 	final static long budget = 600000;
 	final static int nSlots = 100;
@@ -107,7 +113,7 @@ public class SchedulerHH {
 	}
 	
 	public static class Configuration{
-		static final int n = 1; //(1,3,22) (2,3,34)
+		static final int n = 1;
 		static final int m = 3;
 		static final int n_weights = 22;
 		double[] weights; 
@@ -191,7 +197,6 @@ public class SchedulerHH {
 		try (BufferedReader br = new BufferedReader(new FileReader(folder+"/input_seeds.csv"))) {
 		    String line;
 		    while ((line = br.readLine()) != null) {
-		       // process the line.
 		    	String[] tokens = line.split(",");
 		    	int x = Integer.parseInt(tokens[0]);
 		    	for(int i = 0; i < 32; i++){
@@ -220,7 +225,7 @@ public class SchedulerHH {
 		NoRestartFairShareILS,
 		EPH,
 		GIHH,
-		//ASAP-HH
+		/*ASAP-HH*/
 		GDeluge,
 		GreedyHH,
 		HyperILS,

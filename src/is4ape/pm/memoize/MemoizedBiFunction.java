@@ -51,6 +51,7 @@ public class MemoizedBiFunction<X1,X2,Y> implements BiFunction<X1,X2,Y>{
 		
 		public boolean equals(Object obj){
 			if(obj instanceof MemoizedBiFunction.Key){
+				@SuppressWarnings("unchecked")
 				Key okey = (Key) obj;
 				return first.equals(okey.first) && second.equals(okey.second);
 			}

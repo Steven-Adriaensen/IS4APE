@@ -14,16 +14,8 @@ import is4ape.pm.memoize.MemoizedBiFunction;
 import is4ape.poc.PoC;
 
 /**
- * This is the main class for testing our proof of concept.
- * It illustrates an example setup, on four different scenarios
- * 
- * The range field determines whether the discrete or continuous setup is used.
- * (note that only the prior distributions differ)
- * 
- * The 'estimation' field determines whether independent sample or importance sample estimates are used.
- * (in the former case, no likelihood function is passed to the PoC and expect poor performance unless |C| << max_evals)
- * 
- * Information about the incumbent after every evaluation is written to a csv file in the csv directory.
+ * This is the main class for testing our proof of concept (PoC).
+ * It illustrates an example setup, for four different scenarios
  * 
  * @author Steven Adriaensen
  *
@@ -39,8 +31,8 @@ public class Main {
 	
 	//performance estimation modes supported by our PoC
 	enum Estimation{ 
-		SAMPLE_AVERAGE, //using independent sample averages
-		IMPORTANCE_SAMPLING //using importance sampling estimates
+		SAMPLE_AVERAGE, //using independent sample averages (PoC-SA)
+		IMPORTANCE_SAMPLING //using importance sampling estimates (PoC-IS)
 	}
 	
 	/**
@@ -50,9 +42,10 @@ public class Main {
 	 * @param args: This takes 4-5 command-line arguments, in order:
 	 *     args[0]: scenario on which to run PoC 
 	 *              (0: LOOP_DISCRETE, 1: LOOP_CONTINUOUS, 2: INPUTSORT, 3: SCHEDULER) 
-	 *     args[1]: performance estimation mode used (0: SAMPLE_AVERAGE, 1: IMPORTANCE SAMPLING) 
-	 *     args[2]: number of candidate evaluations after which to terminate (~ tuning budget)
-	 *     args[3]: path to file to which information about the incumbent design is written.
+	 *     args[1]: performance estimation mode used 
+	 *              (0: SAMPLE_AVERAGE, 1: IMPORTANCE SAMPLING) 
+	 *     args[2]: number of candidate evaluations after which to terminate (~ tuning budget, N)
+	 *     args[3]: path to file to which information about the incumbent design is written at any time.
 	 *     args[4]: OPTIONAL: seed for the random generator
 	 */
 	public static void main(String[] args) {
@@ -75,7 +68,20 @@ public class Main {
 		}
 	}
 	
+	/**
+	 * Runs our PoC.
+	 * 
+	 * @param scenario: the scenario to which to apply it (~ wb-ACP)
+	 * @param mode: the performance estimation mode used (PoC-IS vs PoC-SA).
+	 * @param K: a parameter affecting how similarity affects the estimate-quality/reliability tradeoff. (default 3)
+	 * @param L: a parameter determining how many candidate designs are explored per evaluation
+	 * @param N: number of candidate evaluations after which to terminate (~ tuning budget)
+	 * @param output_file: path to file to which information about the incumbent design is written at any time.
+	 * @param rng: random generator to use to make random decisions.
+	 * @throws Exception
+	 */
 	public static void run(Scenario scenario, Estimation mode , double K, int L, int N, File output_file, Random rng) throws Exception{
+		@SuppressWarnings("rawtypes")
 		PoC poc = null;
 		if(scenario.equals(Scenario.LOOP_DISCRETE) || scenario.equals(Scenario.LOOP_CONTINUOUS)){
 			//<LOOPING PROBLEM>
@@ -107,6 +113,10 @@ public class Main {
 							N,
 							Looping.generateInitial());
 		}else if(scenario.equals(Scenario.INPUTSORT)){
+			File data_dir = new File("sort_data");
+			if(!data_dir.exists() || data_dir.listFiles().length == 0) {
+				throw new Exception("sort_data not found: Please extract the contents of sort_data.zip to the sort_data directory.");
+			}
 			//SA or IS
 			BiFunction<List<Double>,InputSort.ExecutionInfo,Double> pr = null;
 			if(mode.equals(Estimation.IMPORTANCE_SAMPLING)){
@@ -125,6 +135,10 @@ public class Main {
 							N,
 							null);
 		}else if(scenario.equals(Scenario.SCHEDULER)){
+			File data_dir = new File("hh_data");
+			if(!data_dir.exists() || data_dir.listFiles().length == 0) {
+				throw new Exception("hh data not found: Please extract the contents of hh_data.zip to the hh_data directory.");
+			}
 			//SA or IS
 			BiFunction<Configuration,SchedulerHH.ExecutionInfo,Double> pr = null;
 			if(mode.equals(Estimation.IMPORTANCE_SAMPLING)){

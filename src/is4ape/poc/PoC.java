@@ -18,11 +18,11 @@ import is4ape.pm.memoize.MemoizePM;
 /**
  * This class provides a fully generic implementation of our proof of concept.
  * 
- * Information about the incumbent at every iteration is written to the output file in csv format
+ * Information about the incumbent at any time is written to the output file in csv format
  * 
  * @author Steven Adriaensen
  *
- * @param <InputType> The type of the input (e.g. problem instances to be solved, budget available for doing so)
+ * @param <InputType> The type of the input
  * @param <DesignType> The type of the design
  * @param <ExecutionType> The type of the execution
  */
@@ -89,6 +89,11 @@ public class PoC<InputType,DesignType,ExecutionType> {
 		int m = 1;
 		
 		while(num_eval < N){
+			System.out.println();
+			System.out.println("<iteration "+(num_it+1)+">");
+			System.out.println("# proposals: "+num_prop+"/"+(L*N));
+			System.out.println("# evaluations: "+num_eval+"/"+N);
+			
 			//generate proposals & update the incumbent
 			List<DesignType> Theta_prop = explore(m,rng);
 			//select contender
@@ -102,35 +107,60 @@ public class PoC<InputType,DesignType,ExecutionType> {
 		}
 		explore(L*N-num_prop,rng); //final attempt to find new incumbents
 		logCurrentIncumbent();
+		
+		System.out.println();
+		System.out.println("<summary>");
+		System.out.println("# proposals: "+num_prop+"/"+(L*N));
+		System.out.println("# evaluations: "+num_eval+"/"+N);
+		System.out.println("duration: "+(System.currentTimeMillis()-start_time)+"ms");
+		System.out.println("theta_inc: "+theta_inc);
+		System.out.println("est. perf.: "+M.o(theta_inc));
 		return theta_inc;
 	}
 	
 	private void init(Random rng, File output_file){
+		//stdout
+		System.out.println("--- Proof of concept white box configurator ---");
+		System.out.println();
+		System.out.println("writing search trajectory information to "+output_file);
+		System.out.println();
+		System.out.println("<parameter settings>");
+		System.out.println("K: "+K);
+		System.out.println("L: "+L);
+		System.out.println("N: "+N);
+		
 		//some initialization for logging purposes
+		output_file.delete(); //delete file if already exist
 		start_time = System.currentTimeMillis();
 		trajFile = output_file;
 		log(trajFile,"Run, Perf. estimate, Incumbent, Time");
 		
 		//initialize the incumbent
 		theta_inc = theta_init != null? theta_init : globalPrior.apply(rng);
+		System.out.println("theta_init: "+theta_inc);
 		
 		//initialize performance model
 		if(pr == null){
 			//independent sample averages
 			M = new IndependentSampleAveragesModel<DesignType,ExecutionType>(p);
+			System.out.println("PE technique: independent sample averages");
 		}else{
 			//importance sample estimates
 			M = new ImportanceSamplingModel<DesignType,ExecutionType>(p,pr);
+			System.out.println("PE technique: importance sampling");
 		}
 		M = new MemoizePM<DesignType,ExecutionType>(M);
-		
+
 		//initialize counters
 		num_eval = 0;
 		num_it = 0;
 		num_prop = 0;
+		
+		
 	}
 	
 	private List<DesignType> explore(int m, Random rng){
+		System.out.println("> EXPLORE "+m+" candidates...");
 		//generate m proposals
 		List<DesignType> Theta_prop = new ArrayList<DesignType>(m);
 		for(int i = 0; i < m; i++){
@@ -145,27 +175,31 @@ public class PoC<InputType,DesignType,ExecutionType> {
 			}
 			Theta_prop.add(theta_i);
 			updateIncumbent(theta_i);
+			System.out.println(theta_i+" (o: "+M.o(theta_i)+", unc: "+M.unc(theta_i)+", sim(theta_inc): "+M.sim(theta_inc, theta_i)+")");
 		}
 		return Theta_prop;
 	}
 	
 	private DesignType select(List<DesignType> Theta_prop, Random rng){
+		System.out.println("> SELECT contender...");
 		double max_val = Double.NEGATIVE_INFINITY;
 		DesignType max_arg = null;
-		//System.out.println("<o: "+M.o(theta_inc)+",unc: "+M.unc(theta_inc)+">");
 		for(DesignType theta : Theta_prop){
 			double term1 = M.o(theta_inc) == M.o(theta)? 0 : (M.o(theta_inc) - M.o(theta))/(M.unc(theta_inc) + M.unc(theta));
-			double val = term1 - Math.pow(M.sim(theta, theta_inc),K)/(1-Math.pow(M.sim(theta, theta_inc),K));
-			//System.out.println("<o: "+M.o(theta)+",unc: "+M.unc(theta)+",sim: "+M.sim(theta,theta_inc)+"> "+val);
+			double val = term1 - Math.pow(M.sim(theta_inc,theta),K)/(1-Math.pow(M.sim(theta_inc,theta),K));
+			System.out.println(theta+": "+val);
 			if(val > max_val){
 				max_val = val;
 				max_arg = theta;
 			}
 		}
-		return max_arg == null? Theta_prop.get(0) : max_arg;
+		max_arg = max_arg == null? Theta_prop.get(0) : max_arg;
+		System.out.println("> contender: "+max_arg);
+		return max_arg;
 	}
 	
 	private void race(DesignType theta_prop, Random rng){
+		System.out.println("> RACE "+theta_inc);
 		//run incumbent
 		test(theta_inc,rng); 
 		//run contender until either incumbent or worse estimate
@@ -173,6 +207,7 @@ public class PoC<InputType,DesignType,ExecutionType> {
 			test(theta_prop,rng);
 			updateIncumbent(theta_prop);
 		}while(num_eval < N && theta_inc != theta_prop && M.o(theta_prop) < M.o(theta_inc));
+		System.out.println("> WINNER: "+theta_inc);
 	}
 	
 	private void test(DesignType theta, Random rng){
@@ -185,6 +220,9 @@ public class PoC<InputType,DesignType,ExecutionType> {
 			//update \hat{M}
 			M.update(theta, exec);
 			num_eval++;
+			System.out.println("> Evaluation "+num_eval);
+			System.out.println("theta: "+theta);
+			System.out.println("p(e): "+p.apply(exec));
 		}
 	}
 
@@ -195,6 +233,7 @@ public class PoC<InputType,DesignType,ExecutionType> {
 				//System.out.println("<o: "+M.o(theta_inc)+",unc: "+M.unc(theta_inc)+">");
 				//System.out.println("<o: "+M.o(theta)+",unc: "+M.unc(theta)+",sim: "+M.sim(theta,theta_inc)+">");
 				theta_inc = theta;
+				System.out.println("NEW INCUMBENT: "+theta_inc);
 			}
 		}
 	}
